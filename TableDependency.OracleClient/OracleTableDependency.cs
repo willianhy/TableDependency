@@ -483,10 +483,10 @@ namespace TableDependency.OracleClient
                     }
                 }
             }
-            catch
+            catch(Exception ex)
             {
                 DropDatabaseObjects(connectionString, dataBaseObjectsNamingConvention);
-                throw;
+                throw new Exception(ex.Message, ex.InnerException);
             }
 
             this.WriteTraceMessage(TraceLevel.Info, $"Database objects created with naming {dataBaseObjectsNamingConvention}.");
@@ -582,7 +582,6 @@ namespace TableDependency.OracleClient
 
             if (allObjectAlreadyPresent.All(exist => !exist.Value)) return true;
             if (allObjectAlreadyPresent.All(exist => exist.Value)) return false;
-
             // Not all objects are present
             throw new SomeDatabaseObjectsNotPresentException(allObjectAlreadyPresent);
         }

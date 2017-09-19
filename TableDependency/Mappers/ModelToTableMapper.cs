@@ -41,6 +41,7 @@ namespace TableDependency.Mappers
     {
         private readonly IDictionary<PropertyInfo, string> _mappings = new Dictionary<PropertyInfo, string>();
 
+
         /// <summary>
         /// Adds the mapping between a model property and a database table column, in order to decouple naming and to overcome the impossibility to map SQL columns name containing spaces.
         /// </summary>
@@ -96,7 +97,7 @@ namespace TableDependency.Mappers
             return null;
         }
 
-        internal void AddMapping(PropertyInfo pi, string columnName)
+        public void AddMapping(PropertyInfo pi, string columnName)
         {
             _mappings[pi] = columnName;
         }
