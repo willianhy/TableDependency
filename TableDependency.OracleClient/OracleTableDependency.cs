@@ -47,6 +47,7 @@ using TableDependency.OracleClient.Exceptions;
 using TableDependency.OracleClient.Helpers;
 using TableDependency.OracleClient.Resources;
 using TableDependency.Utilities;
+using System.Data.SqlClient;
 #endregion
 
 namespace TableDependency.OracleClient
@@ -483,7 +484,7 @@ namespace TableDependency.OracleClient
                     }
                 }
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 DropDatabaseObjects(connectionString, dataBaseObjectsNamingConvention);
                 throw new Exception(ex.Message, ex.InnerException);
@@ -844,8 +845,8 @@ namespace TableDependency.OracleClient
             bool automaticDatabaseObjectsTeardown,
             IEnumerable<ColumnInfo> userInterestedColumns,
             Encoding encoding = null)
-        {            
-            this.WriteTraceMessage(TraceLevel.Verbose, "Get in WaitForNotifications.");            
+        {
+            this.WriteTraceMessage(TraceLevel.Verbose, "Get in WaitForNotifications.");
 
             var task = default(Task);
             var getQueueMessageCommand = default(OracleCommand);
@@ -973,6 +974,54 @@ namespace TableDependency.OracleClient
                 },
                 string.Format(EndMessageTemplate, databaseObjectsNaming));
             return messagesBag;
+        }
+
+        protected override void CreateMirrorTable(String connectionString, IList<string> camposUpdate, string tableName, string mirrorTableName)
+        {
+            StringBuilder sbSql = new StringBuilder();
+            using (var oracleConnection = new OracleConnection(connectionString))
+            {
+                OracleTransaction transaction;
+                oracleConnection.Open();
+
+                using (var oracleCommand = oracleConnection.CreateCommand())
+                {
+                    oracleCommand.CommandType = CommandType.Text;
+
+                    transaction = oracleConnection.BeginTransaction();
+                    oracleCommand.Transaction = transaction;
+
+                    try
+                    {
+                        mirrorTableName = $"{mirrorTableName}_TAB";
+
+                        SqlConnectionStringBuilder builderConection = new SqlConnectionStringBuilder(connectionString);
+                        string campos = String.Join(",", camposUpdate);
+
+                        if (!String.IsNullOrEmpty(campos))
+                        {
+                            sbSql.AppendLine("DECLARE v_Contador                           NUMBER; ");
+                            sbSql.AppendLine($"BEGIN ");
+                            sbSql.AppendLine($"SELECT count(*) INTO v_Contador FROM DBA_TABLES WHERE UPPER(OWNER) = '{builderConection.UserID}' AND UPPER(TABLE_NAME) = '{mirrorTableName.ToUpper()}';");
+                            sbSql.AppendLine($"IF((v_Contador) <= 0)  THEN");
+                            sbSql.AppendLine($" execute immediate 'CREATE TABLE {mirrorTableName} AS SELECT {campos} FROM {tableName} WHERE 1 = 2';");
+                            sbSql.AppendLine($" execute immediate 'ALTER TABLE {mirrorTableName} ADD (UIID RAW(16) constraint PK_{mirrorTableName} primary key)';");
+                            sbSql.AppendLine($" execute immediate 'ALTER TABLE {mirrorTableName} ADD (TIPOOPERACAO CHAR(1), DATAINCLUSAO DATE)';");
+                            sbSql.AppendLine("END IF;");
+                            sbSql.AppendLine("END;");
+
+                            oracleCommand.CommandText = sbSql.ToString();
+                            oracleCommand.ExecuteNonQuery();
+
+                            transaction.Commit();
+                        }
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                    }
+                }
+            }
         }
 
         private static List<string> GetDmlTriggerType(DmlTriggerType dmlTriggerType)
@@ -1234,6 +1283,8 @@ namespace TableDependency.OracleClient
                 });
             }
         }
+
+
         #endregion
     }
 }

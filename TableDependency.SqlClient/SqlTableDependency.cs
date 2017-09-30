@@ -751,7 +751,7 @@ namespace TableDependency.SqlClient
             this.WriteTraceMessage(TraceLevel.Verbose, "Get in WaitForNotifications.");
 
             var waitforSqlScript = $"WAITFOR(receive top ({processableMessages.Count}) [conversation_handle], [message_type_name], [message_body] FROM {schemaName}.[{databaseObjectsNaming}]), timeout {timeOut * 1000};";
-            var newMessageReadyToBeNotified = false;            
+            var newMessageReadyToBeNotified = false;
 
             var dialogHandle = BeginDialogConversation(connectionString, databaseObjectsNaming);
             if (automaticDatabaseObjectsTeardown) waitforSqlScript = $"begin conversation timer ('{dialogHandle}') timeout = {timeOutWatchDog};" + waitforSqlScript;
@@ -782,7 +782,7 @@ namespace TableDependency.SqlClient
                                 using (var sqlDataReader = await sqlCommand.ExecuteReaderAsync(cancellationToken).WithCancellation(cancellationToken))
                                 {
                                     while (sqlDataReader.Read())
-                                    {                                        
+                                    {
                                         var messageType = sqlDataReader.IsDBNull(1) ? null : sqlDataReader.GetSqlString(1);
                                         this.WriteTraceMessage(TraceLevel.Verbose, $"DB message received. Message type = {messageType}.");
 
@@ -1011,6 +1011,49 @@ namespace TableDependency.SqlClient
             }
 
             return columnsList;
+        }
+
+        protected override void CreateMirrorTable(String connectionString, IList<string> camposUpdate, string tableName, string mirrorTableName)
+        {
+            StringBuilder sbSql = new StringBuilder();
+            using (var sqlConnection = new SqlConnection(connectionString))
+            {
+                SqlTransaction transaction;
+                sqlConnection.Open();
+
+                using (var sqlCommand = sqlConnection.CreateCommand())
+                {
+                    sqlCommand.CommandType = CommandType.Text;
+
+                    transaction = sqlConnection.BeginTransaction("TblDepenTransaction");
+                    sqlCommand.Transaction = transaction;
+                    try
+                    {
+                        mirrorTableName = $"{mirrorTableName}_TAB";
+                        string campos = String.Join(",", camposUpdate);
+
+                        if (!String.IsNullOrEmpty(campos))
+                        {
+                            sbSql.AppendLine($"IF (NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = '{mirrorTableName.ToUpper()}'))");
+                            sbSql.AppendLine("BEGIN");
+                            sbSql.AppendLine($"SELECT {campos} INTO {mirrorTableName} FROM {tableName} WHERE 1 = 2;");
+                            sbSql.AppendLine($"ALTER TABLE {mirrorTableName} ADD UIID nvarchar(128) NOT NULL default '';");
+                            sbSql.AppendLine($"ALTER TABLE {mirrorTableName} ADD CONSTRAINT PK_{mirrorTableName} PRIMARY KEY(UIID);");
+                            sbSql.AppendLine($"ALTER TABLE {mirrorTableName} ADD TIPOOPERACAO varchar(1), DATAINCLUSAO DateTime;");
+                            sbSql.AppendLine("END");
+
+                            sqlCommand.CommandText = sbSql.ToString();
+                            sqlCommand.ExecuteNonQuery();
+
+                            transaction.Commit();
+                        }
+                    }
+                    catch 
+                    {
+                        transaction.Rollback();
+                    }
+                }
+            }
         }
 
         private void CheckMapperValidity(IEnumerable<ColumnInfo> tableColumnsList)
