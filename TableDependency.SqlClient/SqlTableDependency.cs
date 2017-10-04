@@ -483,7 +483,7 @@ namespace TableDependency.SqlClient
         protected override bool CheckIfNeedsToCreateDatabaseObjects()
         {
             var allObjectAlreadyPresent = new Dictionary<string, bool>();
-
+            bool collumnsMissing = false;
             using (var sqlConnection = new SqlConnection(_connectionString))
             {
                 sqlConnection.Open();
@@ -521,10 +521,29 @@ namespace TableDependency.SqlClient
                 }
             }
 
-            if (allObjectAlreadyPresent.All(exist => !exist.Value)) return true;
-            if (allObjectAlreadyPresent.All(exist => exist.Value)) return false;
+            var valReturn = CheckValuesReturn(allObjectAlreadyPresent);
+            if (valReturn.HasValue)
+            {
+                return valReturn.Value;
+            }
+            else
+            {
+                throw new SomeDatabaseObjectsNotPresentException(allObjectAlreadyPresent);
+            }
+        }
 
-            throw new SomeDatabaseObjectsNotPresentException(allObjectAlreadyPresent);
+        private bool? CheckValuesReturn(Dictionary<string, bool> allObjectAlreadyPresent)
+        {
+            if (allObjectAlreadyPresent.All(exist => !exist.Value))
+            {
+                return true;
+            }
+            if (allObjectAlreadyPresent.All(exist => exist.Value))
+            {
+                return false;
+            }
+
+            return null;
         }
 
         protected override void DropDatabaseObjects(string connectionString, string databaseObjectsNaming)
@@ -751,7 +770,7 @@ namespace TableDependency.SqlClient
             this.WriteTraceMessage(TraceLevel.Verbose, "Get in WaitForNotifications.");
 
             var waitforSqlScript = $"WAITFOR(receive top ({processableMessages.Count}) [conversation_handle], [message_type_name], [message_body] FROM {schemaName}.[{databaseObjectsNaming}]), timeout {timeOut * 1000};";
-            var newMessageReadyToBeNotified = false;            
+            var newMessageReadyToBeNotified = false;
 
             var dialogHandle = BeginDialogConversation(connectionString, databaseObjectsNaming);
             if (automaticDatabaseObjectsTeardown) waitforSqlScript = $"begin conversation timer ('{dialogHandle}') timeout = {timeOutWatchDog};" + waitforSqlScript;
@@ -782,7 +801,7 @@ namespace TableDependency.SqlClient
                                 using (var sqlDataReader = await sqlCommand.ExecuteReaderAsync(cancellationToken).WithCancellation(cancellationToken))
                                 {
                                     while (sqlDataReader.Read())
-                                    {                                        
+                                    {
                                         var messageType = sqlDataReader.IsDBNull(1) ? null : sqlDataReader.GetSqlString(1);
                                         this.WriteTraceMessage(TraceLevel.Verbose, $"DB message received. Message type = {messageType}.");
 
@@ -1011,6 +1030,54 @@ namespace TableDependency.SqlClient
             }
 
             return columnsList;
+        }
+
+        protected override void CreateMirrorTable(String connectionString, IList<string> camposUpdate, string tableName, string mirrorTableName)
+        {
+            StringBuilder sbSql = new StringBuilder();
+            using (var sqlConnection = new SqlConnection(connectionString))
+            {
+                SqlTransaction transaction;
+                sqlConnection.Open();
+
+                using (var sqlCommand = sqlConnection.CreateCommand())
+                {
+                    sqlCommand.CommandType = CommandType.Text;
+
+                    transaction = sqlConnection.BeginTransaction("TblDepenTransaction");
+                    sqlCommand.Transaction = transaction;
+                    try
+                    {
+                        mirrorTableName = $"{mirrorTableName}_TAB";
+                        string campos = String.Join(",", camposUpdate);
+
+                        if (!String.IsNullOrEmpty(campos))
+                        {
+                            sbSql.AppendLine($"IF (NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = '{mirrorTableName.ToUpper()}'))");
+                            sbSql.AppendLine("BEGIN");
+                            sbSql.AppendLine($"CREATE TABLE {mirrorTableName}");
+                            sbSql.AppendLine($"(");
+                            sbSql.AppendLine($"[UIID] [nvarchar](128) NOT NULL,");
+                            sbSql.AppendLine($"[VALORES] [varchar](max) NULL,");
+                            sbSql.AppendLine($"CONSTRAINT [PK_{mirrorTableName}] PRIMARY KEY CLUSTERED ");
+                            sbSql.AppendLine($"(");
+                            sbSql.AppendLine($"[UIID] ASC");
+                            sbSql.AppendLine($")WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]");
+                            sbSql.AppendLine($") ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]"); ;
+                            sbSql.AppendLine("END");
+
+                            sqlCommand.CommandText = sbSql.ToString();
+                            sqlCommand.ExecuteNonQuery();
+
+                            transaction.Commit();
+                        }
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                    }
+                }
+            }
         }
 
         private void CheckMapperValidity(IEnumerable<ColumnInfo> tableColumnsList)

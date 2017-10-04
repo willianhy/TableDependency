@@ -47,6 +47,7 @@ using TableDependency.OracleClient.Exceptions;
 using TableDependency.OracleClient.Helpers;
 using TableDependency.OracleClient.Resources;
 using TableDependency.Utilities;
+using System.Data.SqlClient;
 #endregion
 
 namespace TableDependency.OracleClient
@@ -483,10 +484,10 @@ namespace TableDependency.OracleClient
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 DropDatabaseObjects(connectionString, dataBaseObjectsNamingConvention);
-                throw;
+                throw new Exception(ex.Message, ex.InnerException);
             }
 
             this.WriteTraceMessage(TraceLevel.Info, $"Database objects created with naming {dataBaseObjectsNamingConvention}.");
@@ -582,7 +583,6 @@ namespace TableDependency.OracleClient
 
             if (allObjectAlreadyPresent.All(exist => !exist.Value)) return true;
             if (allObjectAlreadyPresent.All(exist => exist.Value)) return false;
-
             // Not all objects are present
             throw new SomeDatabaseObjectsNotPresentException(allObjectAlreadyPresent);
         }
@@ -845,8 +845,8 @@ namespace TableDependency.OracleClient
             bool automaticDatabaseObjectsTeardown,
             IEnumerable<ColumnInfo> userInterestedColumns,
             Encoding encoding = null)
-        {            
-            this.WriteTraceMessage(TraceLevel.Verbose, "Get in WaitForNotifications.");            
+        {
+            this.WriteTraceMessage(TraceLevel.Verbose, "Get in WaitForNotifications.");
 
             var task = default(Task);
             var getQueueMessageCommand = default(OracleCommand);
@@ -974,6 +974,54 @@ namespace TableDependency.OracleClient
                 },
                 string.Format(EndMessageTemplate, databaseObjectsNaming));
             return messagesBag;
+        }
+
+        protected override void CreateMirrorTable(String connectionString, IList<string> camposUpdate, string tableName, string mirrorTableName)
+        {
+            StringBuilder sbSql = new StringBuilder();
+            using (var oracleConnection = new OracleConnection(connectionString))
+            {
+                OracleTransaction transaction;
+                oracleConnection.Open();
+
+                using (var oracleCommand = oracleConnection.CreateCommand())
+                {
+                    oracleCommand.CommandType = CommandType.Text;
+
+                    transaction = oracleConnection.BeginTransaction();
+                    oracleCommand.Transaction = transaction;
+
+                    try
+                    {
+                        mirrorTableName = $"{mirrorTableName}_TAB";
+
+                        SqlConnectionStringBuilder builderConection = new SqlConnectionStringBuilder(connectionString);
+                        string campos = String.Join(",", camposUpdate);
+
+                        if (!String.IsNullOrEmpty(campos))
+                        {
+                            sbSql.AppendLine("DECLARE v_Contador                           NUMBER; ");
+                            sbSql.AppendLine($"BEGIN ");
+                            sbSql.AppendLine($"SELECT count(*) INTO v_Contador FROM DBA_TABLES WHERE UPPER(OWNER) = '{builderConection.UserID}' AND UPPER(TABLE_NAME) = '{mirrorTableName.ToUpper()}';");
+                            sbSql.AppendLine($"IF((v_Contador) <= 0)  THEN");
+
+                            sbSql.AppendLine($" execute immediate 'CREATE TABLE {mirrorTableName} (UIID RAW(16) not null, VALORES varchar2(4000), CONSTRAINT PK_{mirrorTableName} PRIMARY KEY (UIID));';");
+
+                            sbSql.AppendLine("END IF;");
+                            sbSql.AppendLine("END;");
+
+                            oracleCommand.CommandText = sbSql.ToString();
+                            oracleCommand.ExecuteNonQuery();
+
+                            transaction.Commit();
+                        }
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                    }
+                }
+            }
         }
 
         private static List<string> GetDmlTriggerType(DmlTriggerType dmlTriggerType)
@@ -1235,6 +1283,8 @@ namespace TableDependency.OracleClient
                 });
             }
         }
+
+
         #endregion
     }
 }

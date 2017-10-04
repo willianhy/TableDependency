@@ -163,6 +163,13 @@ namespace TableDependency
         #endregion
 
         #region Public methods
+        
+
+        public virtual void Restart()
+        {
+            Stop();
+            Start();
+        }
 
         /// <summary>
         /// Starts monitoring table's content changes.
@@ -267,6 +274,8 @@ namespace TableDependency
 
             this.TraceLevel = TraceLevel.Off;
 
+            CreateMirrorTable(connectionString, updateOf, tableName, namingConventionForDatabaseObjects);
+
             _connectionString = connectionString;
             _mapper = mapper ?? this.GetModelMapperFromColumnDataAnnotation();
             _updateOf = updateOf;
@@ -276,6 +285,8 @@ namespace TableDependency
             _needsToCreateDatabaseObjects = CheckIfNeedsToCreateDatabaseObjects();
             _dmlTriggerType = dmlTriggerType;
         }
+
+        protected abstract void CreateMirrorTable(String connectionString, IList<string> camposUpdate, string tableName, string mirrorTableName);
 
         protected abstract IEnumerable<ColumnInfo> GetUserInterestedColumns(IEnumerable<string> updateOf);
 
