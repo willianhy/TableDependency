@@ -483,7 +483,7 @@ namespace TableDependency.SqlClient
         protected override bool CheckIfNeedsToCreateDatabaseObjects()
         {
             var allObjectAlreadyPresent = new Dictionary<string, bool>();
-
+            bool collumnsMissing = false;
             using (var sqlConnection = new SqlConnection(_connectionString))
             {
                 sqlConnection.Open();
@@ -521,10 +521,29 @@ namespace TableDependency.SqlClient
                 }
             }
 
-            if (allObjectAlreadyPresent.All(exist => !exist.Value)) return true;
-            if (allObjectAlreadyPresent.All(exist => exist.Value)) return false;
+            var valReturn = CheckValuesReturn(allObjectAlreadyPresent);
+            if (valReturn.HasValue)
+            {
+                return valReturn.Value;
+            }
+            else
+            {
+                throw new SomeDatabaseObjectsNotPresentException(allObjectAlreadyPresent);
+            }
+        }
 
-            throw new SomeDatabaseObjectsNotPresentException(allObjectAlreadyPresent);
+        private bool? CheckValuesReturn(Dictionary<string, bool> allObjectAlreadyPresent)
+        {
+            if (allObjectAlreadyPresent.All(exist => !exist.Value))
+            {
+                return true;
+            }
+            if (allObjectAlreadyPresent.All(exist => exist.Value))
+            {
+                return false;
+            }
+
+            return null;
         }
 
         protected override void DropDatabaseObjects(string connectionString, string databaseObjectsNaming)
@@ -1036,10 +1055,15 @@ namespace TableDependency.SqlClient
                         {
                             sbSql.AppendLine($"IF (NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_NAME) = '{mirrorTableName.ToUpper()}'))");
                             sbSql.AppendLine("BEGIN");
-                            sbSql.AppendLine($"SELECT {campos} INTO {mirrorTableName} FROM {tableName} WHERE 1 = 2;");
-                            sbSql.AppendLine($"ALTER TABLE {mirrorTableName} ADD UIID nvarchar(128) NOT NULL default '';");
-                            sbSql.AppendLine($"ALTER TABLE {mirrorTableName} ADD CONSTRAINT PK_{mirrorTableName} PRIMARY KEY(UIID);");
-                            sbSql.AppendLine($"ALTER TABLE {mirrorTableName} ADD TIPOOPERACAO varchar(1), DATAINCLUSAO DateTime;");
+                            sbSql.AppendLine($"CREATE TABLE {mirrorTableName}");
+                            sbSql.AppendLine($"(");
+                            sbSql.AppendLine($"[UIID] [nvarchar](128) NOT NULL,");
+                            sbSql.AppendLine($"[VALORES] [varchar](max) NULL,");
+                            sbSql.AppendLine($"CONSTRAINT [PK_{mirrorTableName}] PRIMARY KEY CLUSTERED ");
+                            sbSql.AppendLine($"(");
+                            sbSql.AppendLine($"[UIID] ASC");
+                            sbSql.AppendLine($")WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]");
+                            sbSql.AppendLine($") ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]"); ;
                             sbSql.AppendLine("END");
 
                             sqlCommand.CommandText = sbSql.ToString();
@@ -1048,7 +1072,7 @@ namespace TableDependency.SqlClient
                             transaction.Commit();
                         }
                     }
-                    catch 
+                    catch
                     {
                         transaction.Rollback();
                     }

@@ -163,6 +163,13 @@ namespace TableDependency
         #endregion
 
         #region Public methods
+        
+
+        public virtual void Restart()
+        {
+            Stop();
+            Start();
+        }
 
         /// <summary>
         /// Starts monitoring table's content changes.

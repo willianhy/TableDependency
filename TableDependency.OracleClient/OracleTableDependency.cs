@@ -1004,9 +1004,9 @@ namespace TableDependency.OracleClient
                             sbSql.AppendLine($"BEGIN ");
                             sbSql.AppendLine($"SELECT count(*) INTO v_Contador FROM DBA_TABLES WHERE UPPER(OWNER) = '{builderConection.UserID}' AND UPPER(TABLE_NAME) = '{mirrorTableName.ToUpper()}';");
                             sbSql.AppendLine($"IF((v_Contador) <= 0)  THEN");
-                            sbSql.AppendLine($" execute immediate 'CREATE TABLE {mirrorTableName} AS SELECT {campos} FROM {tableName} WHERE 1 = 2';");
-                            sbSql.AppendLine($" execute immediate 'ALTER TABLE {mirrorTableName} ADD (UIID RAW(16) constraint PK_{mirrorTableName} primary key)';");
-                            sbSql.AppendLine($" execute immediate 'ALTER TABLE {mirrorTableName} ADD (TIPOOPERACAO CHAR(1), DATAINCLUSAO DATE)';");
+
+                            sbSql.AppendLine($" execute immediate 'CREATE TABLE {mirrorTableName} (UIID RAW(16) not null, VALORES varchar2(4000), CONSTRAINT PK_{mirrorTableName} PRIMARY KEY (UIID));';");
+
                             sbSql.AppendLine("END IF;");
                             sbSql.AppendLine("END;");
 
